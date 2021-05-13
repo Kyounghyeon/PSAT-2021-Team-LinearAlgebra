@@ -1,0 +1,381 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 5 1 '
+output: html_document
+---
+
+
+```{r basic, message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(data.table)
+library(caret)
+library(magrittr)
+library(plyr)
+library(rpart)
+library(rpart.plot)
+library(e1071)
+library(caTools)
+library(MLmetrics)
+library(party)
+library(rattle)
+
+
+train = fread("flt_train_cat.csv")
+test = fread("flt_test_cat.csv")
+
+```
+
+
+
+```{r}
+
+train$season = train$season %>% as.character() %>% 
+  plyr::revalue(c("1" = "Spring",
+                  "2" = "Summer",
+                  "3" = "Fall",
+                  "4" = "Winter"))
+
+
+train$hair  = train$hair %>% as.character() %>% 
+  plyr::revalue(c("0" = "LS",
+                  "1" = "S",
+                  "2" = "L"))
+
+train$color = train$color %>% as.character() %>% 
+  plyr::revalue(c("0" = "etc",
+            "1"= "black",
+            "2"= "blackbrown",
+            "3"= "blackbrownwhite",
+            "4"= "blackwhite",
+            "5"= "brown",        
+            "6"="brownwhite",
+            "7"= "white"
+            ))
+
+train %<>% 
+  mutate(adoptionYN = as.character(adoptionYN),
+         neuterYN = as.character(neuterYN),
+         sex = as.character(neuterYN))
+
+train %<>%
+  mutate_if(is.character, as.factor)
+
+train
+```
+
+
+
+
+# 나이브 베이즈
+```{r}
+
+############################ 5-fold CV (2)
+set.seed(613)
+folds = createFolds(train$adoptionYN, k = 5)
+
+
+grid <- expand.grid(
+  usekernel = c(TRUE, FALSE),
+  laplace = seq(0,3,0.5), # Laplace
+  adjust = seq(1,3,0.5), # Bandwidth
+  F1 = NA,
+  ACC = NA
+)
+
+
+for (n in 1:nrow(grid)){
+
+  usekernel = grid[n, "usekernel"]
+  laplace = grid[n, "laplace"]
+  adjust = grid[n, "adjust"]
+  f1_vec = NULL
+  acc_vec = NULL
+  
+  tune_grid = data.frame("usekernel" = usekernel,
+                         "adjust" = adjust,
+                         "laplace" = laplace)
+
+  for (fold in 1:5){
+    
+    # train / validation set split
+    valid_index = folds[[fold]]
+    valid_set = train[valid_index,]
+    train_set = train[-valid_index,]
+  
+    # standardization
+    train_scaled = train_set %>% 
+      mutate_if(is.numeric, scale)
+    valid_scaled = valid_set %>% 
+      mutate_if(is.numeric, scale)
+  
+    nb_model = train(x=train_scaled[,-"adoptionYN"], y=train_scaled$adoptionYN, 
+                     method="naive_bayes",
+                     tuneGrid = tune_grid)
+  
+    true_y = valid_scaled$adoptionYN
+    pred_y = predict(nb_model, newdata = valid_scaled[,-"adoptionYN"])
+  
+  
+    f1 = F1_Score(pred_y, true_y)
+    acc = Accuracy(pred_y, true_y)
+  
+    f1_vec = c(f1_vec, f1)
+    acc_vec = c(acc_vec, acc)
+  
+}
+  f1_m = mean(f1_vec)
+  acc_m = mean(acc_vec)
+  
+  grid[n, "F1"] = f1_m
+  grid[n, "ACC"] = acc_m
+  
+}
+grid
+grid %>%
+  filter(ACC  == max(ACC) | F1 == max(F1))
+
+
+
+
+
+
+```
+
+
+
+# 의사결정나무
+```{r}
+############################ 5-fold CV 
+set.seed(613)
+folds = createFolds(train$adoptionYN, k = 5)
+
+tuning_params = expand.grid(minsplit = c(10,15,20,25,30),
+              cp = c(0.001, 0.01, 0.03, 0.05, 0.1),
+              maxdepth = c(5,10,20,30),
+              f1 = NA,
+              acc = NA)
+
+
+for ( i in 1:nrow(tuning_params)){
+
+  minsplit = tuning_params[i,"minsplit"]
+  cp = tuning_params[i,"cp"]
+  maxdepth = tuning_params[i,"maxdepth"]
+  
+  F1score_tree = NULL
+  Accuracy_tree = NULL
+  
+  
+for (fold in 1:5){
+
+
+  # train / validation set split
+  valid_index = folds[[fold]]
+  valid_set = train[valid_index,]
+  train_set = train[-valid_index,]
+  
+  # standardization
+  train_scaled = train_set %>% 
+    mutate_if(is.numeric, scale)
+  valid_scaled = valid_set %>% 
+    mutate_if(is.numeric, scale)
+  
+  tree_model = rpart(adoptionYN~., data = train_scaled, method = "class",
+                     control = rpart.control(minsplit = minsplit,
+                                             cp = cp,
+                                             maxdepth = maxdepth))
+  
+  true_y = valid_scaled$adoptionYN
+  pred_y = predict(tree_model, newdata = valid_scaled[,-"adoptionYN"])[,2]
+  pred_y = ifelse(pred_y > .5, 1, 0)
+
+  if(sum(pred_y) == 0) {
+    f1 = 0
+    acc = 0
+  }else{
+  
+  f1 = F1_Score(pred_y, true_y)
+  acc = Accuracy(pred_y, true_y)
+  
+  }
+  
+  F1score_tree = c(F1score_tree, f1)
+  Accuracy_tree = c(Accuracy_tree, acc)
+  
+  }
+  tuning_params[i,"f1"] = mean(F1score_tree, na.rm = T)
+  tuning_params[i, "acc"] = mean(Accuracy_tree, na.rm = T)
+}
+
+tuning_params %>%
+  filter(acc  == max(acc) | f1 == max(f1))
+
+# tree_fit = train %>% 
+#   mutate_if(is.numeric, scale) %>% 
+#   rpart(adoptionYN ~., data=., method = "class",
+#         control = rpart.control(minsplit = 10,
+#                                 cp = .001,
+#                                 maxdepth = 20))
+# 
+# 
+# printcp(tree_fit)
+# plotcp(tree_fit)
+# fancyRpartPlot(tree_fit)
+# 
+# pfit<- prune(tree_fit,cp=tree_fit$cptable[which.min(tree_fit$cptable[,"xerror"]),"CP"])
+# 
+# 
+# fancyRpartPlot(pfit)
+
+
+```
+
+
+
+# Test 셋 적용
+```{r}
+
+train = fread("flt_train_cat.csv")
+
+train$season = train$season %>% as.character() %>% 
+  plyr::revalue(c("1" = "Spring",
+                  "2" = "Summer",
+                  "3" = "Fall",
+                  "4" = "Winter"))
+
+
+train$hair  = train$hair %>% as.character() %>% 
+  plyr::revalue(c("0" = "LS",
+                  "1" = "S",
+                  "2" = "L"))
+
+train$color = train$color %>% as.character() %>% 
+  revalue(c("0" = "etc",
+            "1"= "black",
+            "2"= "blackbrown",
+            "3"= "blackbrownwhite",
+            "4"= "blackwhite",
+            "5"= "brown",        
+            "6"="brownwhite",
+            "7"= "white"
+            ))
+
+
+
+train %<>% 
+  mutate(adoptionYN = as.character(adoptionYN),
+         neuterYN = as.character(neuterYN),
+         sex = as.character(neuterYN))
+
+train %<>%
+  mutate_if(is.character, as.factor)
+
+train
+
+
+```
+
+
+
+```{r}
+
+test = fread("flt_test_cat.csv")
+
+test$season = test$season %>% as.character() %>% 
+  plyr::revalue(c("1" = "Spring",
+                  "2" = "Summer",
+                  "3" = "Fall",
+                  "4" = "Winter"))
+
+
+test$hair  = test$hair %>% as.character() %>% 
+  plyr::revalue(c("0" = "LS",
+                  "1" = "S",
+                  "2" = "L"))
+
+test$color = test$color %>% as.character() %>% 
+  plyr::revalue(c("0" = "etc",
+            "1"= "black",
+            "2"= "blackbrown",
+            "3"= "blackbrownwhite",
+            "4"= "blackwhite",
+            "5"= "brown",        
+            "6"="brownwhite",
+            "7"= "white"
+            ))
+
+test %<>% 
+  mutate(adoptionYN = as.character(adoptionYN),
+         neuterYN = as.character(neuterYN),
+         sex = as.character(neuterYN))
+
+test %<>%
+  mutate_if(is.character, as.factor) %>% 
+  mutate_if(is.numeric, scale)
+
+test
+
+```
+
+
+## 나이브 베이즈
+```{r}
+
+tune = data.frame("usekernel" = T,
+                  "laplace" = 3,
+                  "adjust" = 3)
+
+train_for_test = train %>%
+  mutate_if(is.numeric, scale)
+
+nb_model = naiveBayes(adoptionYN~., data = train_for_test)
+pred_y = predict(nb_model, newdata = test[,-"adoptionYN"])
+Accuracy(pred_y, test$adoptionYN)
+F1_Score(pred_y, test$adoptionYN)
+
+nb_test_model = train(adoptionYN~., data = train_for_test, method = "naive_bayes",
+                      tuneGrid = tune)
+
+pred_y = predict(nb_test_model, newdata = test[,-"adoptionYN"])
+Accuracy(pred_y, test$adoptionYN)
+F1_Score(pred_y, test$adoptionYN)
+
+```
+
+## 의사결정나무
+```{r}
+
+
+
+set.seed(613)
+tree_model_final = rpart(adoptionYN~., data = train_for_test, method = "class",
+                     control = rpart.control(minsplit = 20,
+                                             cp = .001,
+                                             maxdepth = 5))
+
+pred_test_y = predict(tree_model_final, newdata = test[,-"adoptionYN"])
+pred_test_y = ifelse(pred_test_y[,2] > .5, 1, 0 )
+test_y = test$adoptionYN
+
+Accuracy(pred_test_y, test_y)
+F1_Score(pred_test_y, test_y)
+
+
+tree_model_final$variable.importance
+
+varImp(tree_model_final) 
+
+```
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,475 @@
+---
+title: "PSAT Week1 Package"
+author: "KyounghyeonKo"
+date: '2021 3 8 '
+output: html_document
+---
+
+# CHAPTER 1. 전처리
+
+## Q0. 기본 세팅
+
+
+- 라이브러리 불러오기기
+```{r Basic Setting, echo=TRUE}
+
+library(plyr)
+library(tidyverse)
+library(data.table)
+
+```
+
+- 경로설정, 데이터 불러오기
+```{r}
+setwd('C:/Users/RRR/Desktop/PSAT/Package/Week 1')
+data = fread('data.csv')
+
+```
+
+
+```{r include=FALSE}
+data <- data %>% 
+  mutate(confirmed_date = as.character(confirmed_date))
+
+```
+
+
+## Q1. 데이터 확인하기
+
+1. `str()`로 데이터 구조 확인
+```{r Check Data}
+
+str(data)
+```
+
+2. 각 열 별 `NA`개수 확인 
+```{r}
+data %>% is.na %>% colSums
+```
+
+3. 각 열 별 `unique`값 및 개수 확인
+```{r}
+unique_data <- data %>% 
+                  select(-patient_id) %>%
+                  apply(2,unique) 
+
+unique_data
+
+#Check the number of unique values for each column
+unique_data %>% lapply(length)
+
+```
+
+
+## Q2-1. NA가 있는 행 삭제
+```{r}
+
+# 위에서 이미 confirmed_date 열에만 na가 있는 것을 알고 있으므로,
+data <- data %>%
+  filter(!is.na(confirmed_date))
+
+```
+
+
+
+## Q2-2. 
+
+1. 빈 문자열 `""`이 있는 행을 삭제
+```{r}
+
+#Remove rows with empty space
+data <- data %>%
+  filter(patient_id != "") %>%
+  filter(sex != "") %>% 
+  filter(age != "") %>% 
+  filter(country != "") %>% 
+  filter(province != "") %>% 
+  filter(city != "") %>% 
+  filter(confirmed_date != "") %>% 
+  filter(state != "")
+```
+
+2. 다시 각 열마다 `NA` 개수 확인
+```{r}
+data %>% is.na %>% colSums
+
+```
+
+3. 다시 각 열마다 `unique`값 및 개수 확인
+```{r}
+
+unique_data <- data %>% 
+                  select(-patient_id) %>%
+                  apply(2,unique)
+
+unique_data
+
+
+unique_data %>% lapply(length)
+
+
+
+```
+
+
+## Q3. `country`열에 `'Korea'`인 행만 남기고 `country`열 삭제
+```{r}
+
+data <- data %>% 
+  filter(country=="Korea") %>% 
+  select(-country)
+data %>%  head
+
+```
+
+
+## Q4. `province`열 내 값 변경
+```{r}
+
+data$province <- data$province %>% 
+  revalue(c("서울"="서울특별시",
+            "부산"="부산광역시",
+            "대구"="대구광역시",
+            "인천"="인천광역시",
+            "대전"="대전광역시",
+            "세종"="세종특별자치시",
+            "울산"="울산광역시",
+            "제주도"="제주특별자치도"))
+
+data %>% head
+
+```
+
+## Q5. `confirmed_date`의 자료형을 날짜 자료형 `date`으로 변경
+```{r}
+data$confirmed_date <- 
+  data$confirmed_date %>% as.Date
+str(data$confirmed_date)
+```
+
+## Q6. 확진날짜 별 확진자 수에 대한 파생변수 `confirmed_number`생성
+```{r}
+
+#기존 데이터에 추가하는 것까지는 명확하게 몰라서 하지 않았습니다.
+confirmed_number <- data %>% 
+  group_by(confirmed_date) %>% 
+  summarise(
+    confirmed_number = n()
+  )
+
+confirmed_number %>% head
+
+
+```
+
+## Q7. 확진날짜의 주말, 주중 여부에 대한 파생변수 `wday` 생성
+```{r}
+
+wday <- data$confirmed_date %>%
+  weekdays
+
+wday <- ifelse(wday == "토요일" | wday == "일요일", "주말", "주중")
+
+
+wday %>% head(10)
+
+```
+
+## Q8. 나이대 별 일별 확진자수에 대한 요약통계량
+```{r}
+
+confirmed_freq <- data %>%
+  group_by(age, confirmed_date) %>%
+  summarise(
+    count = n()
+  )
+
+tapply(confirmed_freq$count, confirmed_freq$age, summary)
+```
+
+
+# CHAPTER 2. 시각화
+## Q1. Line plot(1)
+```{r}
+
+#최대 확진자수가 발생한 날짜와 그날의 확진자수 생성
+maximum <- data %>% 
+  group_by(confirmed_date) %>% 
+  summarise(
+    confirmed_number = n()
+  ) %>% 
+  mutate(
+    max_index = which.max(confirmed_number),
+    max_date = confirmed_date[max_index],
+    max_num = confirmed_number[max_index]
+  ) %>% 
+  select(max_date, max_num) %>% 
+  head(1)
+
+#날짜별 확진자수 추이를 confirmed_number 이용하여 시각화 및 최대 확진자수 및 발생 날짜 표시
+#챕터1 문제6에서 만든 confirmed_number를 직접 사용하지는 않았지만,
+#아래 코드 내에서 문제 6번에서 했던 것과 동일하게 confirmed_number를 생성하여 이용했습니다.
+
+data %>% 
+  group_by(confirmed_date) %>% 
+  summarise(
+    confirmed_number = n()
+  ) %>%
+ ggplot(aes(confirmed_date, confirmed_number)) +
+  geom_line(color = "lightblue") + 
+  annotate("point",
+           x= maximum$max_date, y=maximum$max_num,
+           color = 'navy') +
+  annotate("text",
+           x = maximum$max_date-20, y=maximum$max_num, 
+           label = sprintf("%s(%d명)", maximum$max_date, maximum$max_num),
+           fontface = 2,
+           color = 'navy') +
+  labs(title="코로나 확진자수 추이\n-국내인 기준") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust=0.5, face = "bold"))
+  
+
+
+```
+
+## Q1-2. Line plot(2)
+```{r}
+
+
+data %>% 
+  group_by(confirmed_date) %>% 
+  mutate( confirmed_number=n() ) %>%
+  ggplot(aes(x=confirmed_date, y=confirmed_number)) +
+  geom_line(aes(color=province)) + 
+  facet_wrap(~province, nrow=4)
+
+
+```
+
+
+
+## Q1-2. Line plot(2)*
+- 문제에 나온 시각화 자료에서, 그래프의 y축 label이 '지역별 확진자수'에 정확히 대응되는 것 같지 같아 한 개를 더 만들어보았습니다.
+```{r}
+
+data %>% 
+  group_by(province, confirmed_date) %>%
+  summarise(
+    confirmed_number = n()
+  ) %>% 
+  ggplot(aes(confirmed_date, confirmed_number)) +
+  geom_line(aes(color = province)) +
+  facet_wrap(~province, nrow=4, scales = "free")
+
+```
+
+
+## Q2. Bar plot
+```{r}
+
+data %>% 
+  group_by(province, state) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x= count, y = reorder(province, count))) +
+  geom_bar(stat = "identity", aes(fill = state, colour = state), alpha=0.4) + 
+  labs(x="확진자 수 ", y="지역")
+
+
+```
+
+
+
+
+
+## Q3. Box plot
+```{r}
+
+data %>%
+  group_by(age, confirmed_date) %>%
+  summarise(
+    count=n()
+  ) %>%
+  ggplot(aes(age, count)) +
+  geom_boxplot(aes(x=age, y=count, fill=age, colour=age),
+               alpha=0.4,
+               outlier.shape = NA) + 
+  stat_boxplot(geom='errorbar', aes(color = age)) +
+  theme_classic() +
+  labs(y="일단위 확진자수")
+  
+
+
+```
+
+
+## Q3-2. one-way ANOVA
+```{r}
+
+data %>% 
+  group_by(age, confirmed_date) %>%
+  summarise(
+    count=n()
+  ) %>% 
+  aov(count ~ age, data=.) %>% 
+  summary
+
+```
+일원분산분석시 귀무가설(H0)는 '나이대별 코로나19 확진자수 평균에 차이가 없다'로 생각하고 분산분석을 진행했습니다. <br>
+결과에서 나이에 관한 P-value값이 매우 작아 귀무가설을 기각했으며, 나이대별 코로나 확진자수 평균에는 통계적으로 유의미한 차이가 있다는 해석을 했습니다.
+
+
+## Q4. Map
+1. 라이브러리 불러오기
+```{r}
+library(raster)
+library(rgeos)
+library(rgdal)
+library(maptools)
+
+```
+
+```{r}
+
+korea_map = readOGR("TL_SCCO_CTPRVN.shp"); korea_map
+korea_map@data
+korea = fortify(korea_map, region='CTP_KOR_NM')
+
+data %>% 
+  group_by(province) %>% 
+  summarise(n=n()) %>% 
+  left_join(x=korea, y=., by=c("id"="province")) %>% 
+  ggplot(aes(long, lat)) +
+  geom_polygon(aes(fill=n, group=group)) +
+  scale_fill_gradient(low="white", high="red") + 
+  labs(title="지역별 누적 확진자 수")
+
+
+```
+
+
+# CHAPTER 3. 모델링_회귀분석
+
+## Q0. 라이브러리 불러오기
+```{r}
+
+
+library(MASS)
+library(corrplot)
+library(caret)
+library(MLmetrics)
+
+
+```
+
+
+## Q1. 상관계수 플랏 생성
+```{r}
+
+Boston %>% 
+  cor %>% 
+  corrplot(method='number', type="upper")
+
+
+```
+
+
+아래에서 지칭하는 상관관계는 '선형 상관관계'를 의미합니다. <br>
+- `indus`변수는 `nox`변수와 `tax`변수 간에 양의 상관관계가 있고 `dis`변수와는 음의 상관관계가 있다.<br>
+- `chas` 변수는 그 어떤 변수와도 상관관계가 없다.<br>
+- `nox`변수는 `age`변수와 양의 상관관계가 있고 `dis`변수와는 음의 상관관계가 있다.<br>
+- `rm` 변수는 `medv`변수와 양의 상관관계가 있다.<br>
+- `age`변수는 `dis`변수와 음의 상관관계가 있다.<br>
+- `rad`변수는 `tax`변수와 꽤 강한 양의 상관관계가 있다.<br>
+- `lstat`변수는 `medv`변수와 음의 상관관계가 있다.<br>
+
+## Q2. 산점도와 회귀추세선 그리기
+```{r}
+
+
+Boston %>%
+  gather(-medv, key="variable", value = "val") %>%
+  ggplot(aes(x=val, y=medv)) + 
+  geom_point(aes(x=val, y=medv)) + 
+  geom_smooth(method = lm, color ='lightblue') +
+  facet_wrap(~variable, nrow=4, scales = "free") +
+  labs(title="Scatter plot of dependent variables vs Median Value (medv)")
+
+```
+
+
+## Q3. 데이터 셋 split
+```{r}
+
+set.seed(1234)
+
+train_index <- createDataPartition(Boston$medv, p=0.7, list=FALSE)
+train_data <- Boston[train_index,]
+test_data <- Boston[-train_index,]
+
+
+
+```
+
+
+
+## Q3-2. 
+1. train데이터로 회귀모형 생성 후 해석 
+```{r}
+
+Fitmodel <- train_data %>% 
+  train(medv ~ ., data=., method="lm")
+
+summary(Fitmodel)
+
+```
+`medv`를 제외한 변수를 모두 독립변수로 하였을 때, `chas`변수와 `age`는 `medv`에 그다지 유의미한 영향을 끼친다고 볼 수 없다. <br>
+하지만 두 변수가 실제로 `medv`변수와 관계가 없는지는 판단할 수 없다. 다른 독립변수들과의 다중공선성 문제가 있을 수 있기 때문이다. <br>
+이는 variable selection 과정을 통해 해결할 수 있다고 생각한다.
+
+
+
+2. test RMSE
+```{r}
+
+medv_pred <- predict(Fitmodel, newdata = test_data)
+medv_true = test_data$medv
+RMSE(medv_pred, medv_true)
+
+```
+
+## Q3-3. RMSE를 낮출 수 있는 방법
+1. obs의 수, 즉 표본을 많이 확보한다.
+2. Bootstrap 또는 Cross Validation 을 통해 여러 모델 중 test RMSE 값이 가장 낮은 모델을 선택한다.
+
+
+## Q4. 회귀모형 계수 시각화
+```{r}
+
+#계수 포함하고 있는 data 생성
+result <- summary(Fitmodel)$coefficients %>%
+  as.data.frame
+
+
+#계수 크기에 따른 시각화 색깔 미리 지정
+col <- ifelse(result$Estimate >5, 'red', ifelse(result$Estimate < -2, 'blue', 'yellow'))
+
+
+#시각화
+result %>%
+  ggplot(aes(x=Estimate, y=reorder(rownames(.), Estimate))) +
+  geom_col(fill = col, color=col, alpha=0.3) +
+  geom_text(aes(label=round(Estimate,2)), position = position_stack(0.5)) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x="value", y="intercept and variables")
+  
+
+
+```
+
+
+
+
+
+

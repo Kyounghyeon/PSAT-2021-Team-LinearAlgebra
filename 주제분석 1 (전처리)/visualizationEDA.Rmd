@@ -1,0 +1,621 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 4 21 '
+output: html_document
+---
+
+
+# 전철
+```{r message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(data.table)
+library(magrittr)
+library(lubridate)
+
+data_2020 = fread("2020.csv") 
+
+data_2020 %>% 
+  filter(neuterYn != "U" & neuterYn != "N" & neuterYn != "Y") %>% 
+  summarise(n())
+
+data_2020 = data_2020 %>%
+  mutate(age = parse_number(age),
+         weight_kg = parse_number(weight), .keep ="unused") %>% 
+  arrange(age)
+
+
+
+#나이
+data_2020[age > 10000, "age"] = data_2020[age > 10000, age %/% 10000]
+data_2020[age < 1000, "age"] = data_2020[age < 1000, 2020-age]
+
+#전처리
+data_2020 = data_2020 %>% 
+  mutate(noticeSdt = as_date(noticeSdt %>% as.character),
+         noticeEdt = as_date(noticeEdt %>% as.character)) %>% 
+  filter(noticeSdt <= ymd("20201231")) %>% 
+  arrange(noticeSdt) %>% 
+  separate(kindCd, c("kind", "kind_spec"), sep = " ") %>% drop_na %>% 
+  mutate(neuterYN = ifelse(neuterYn == "Y", "Y", 
+                           ifelse(neuterYn == "N", "N", "U")), 
+         age = 2021 - age,
+         sex = as.factor(sexCd), #성별
+         state = str_replace(processState, ".+\\((.+)\\)", "\\1"), #상태
+         kind = str_extract(kind, "\\w+"), #"[개] -> 개" 로 바꾸기
+         adoptionYN = ifelse(state == "입양", 1, 0), # 입양 여부
+         .keep = "unused")
+
+#나누기
+data_dog = data_2020 %>% filter(kind == "개")
+data_cat = data_2020 %>% filter(kind == "고양이")
+
+
+#무게
+data_cat[weight_kg >= 100 & weight_kg <= 800, "weight_kg"] = data_cat[weight_kg >= 100 & weight_kg <= 800, weight_kg/1000]
+data_cat[weight_kg >= 20 & weight_kg < 60, "weight_kg"] = data_cat[weight_kg >= 20 & weight_kg < 60, weight_kg/10]
+data_cat  = data_cat %>% filter(weight_kg <= 100) 
+data_dog[weight_kg >= 100 & weight_kg <= 1800, "weight_kg"] = data_dog[weight_kg >= 100 & weight_kg <= 1800, weight_kg/1000]
+data_dog = data_dog %>% filter(weight_kg <= 100)
+
+
+View(data_dog)
+View(data_cat)
+
+```
+
+
+
+
+# 나이
+```{r}
+
+
+#age_boxplot
+data_dog %>% 
+  mutate(year = year(noticeSdt),
+         adoptionYN = as.factor(adoptionYN)) %>% 
+  ggplot(aes(x=adoptionYN, y = age)) +
+  geom_boxplot(aes(color = adoptionYN))
+
+data_cat %>% 
+  mutate(year = year(noticeSdt),
+         adoptionYN = as.factor(adoptionYN)) %>% 
+  ggplot(aes(x=adoptionYN, y = age)) +
+  geom_boxplot(aes(color = adoptionYN))
+
+#age_barplot
+data_dog %>% 
+  mutate(year = year(noticeSdt),
+         adoptionYN = as.factor(adoptionYN)) %>% 
+  ggplot(aes(x=age)) +
+  geom_bar(aes(fill = adoptionYN), position = "dodge") + 
+  facet_wrap(~year, ncol = 3)
+
+data_dog %>% 
+  mutate(year = year(noticeSdt),
+         adoptionYN = as.factor(adoptionYN)) %>% 
+  filter(age >= 0 & age <= 30) %>% 
+  ggplot(aes(x=age)) +
+  geom_bar(aes(fill = year), position = "dodge") + 
+  facet_wrap(adoptionYN~year, nrow = 2, ncol = 3)
+
+
+
+
+
+
+```
+
+
+#몸무게
+```{r}
+
+#나이도 공통
+# 박스플랏 그려보고
+# 이상치가 많다
+# 이러저러한 방법으로
+# 제거하고 다시 비교해보자
+data_dog_org = data_dog
+
+
+data_dog %>% 
+  ggplot(aes(y=weight_kg)) + 
+  geom_boxplot()
+
+#이상치 검출해서 공통되는 관측값들 빼보자
+# IQR 방법_개 무게
+data_dog$weight_kg %>% summary
+
+# 1분위수 계산
+Q1_dog_w = quantile(data_dog$weight_kg ,probs = c(0.25),na.rm = TRUE) 
+# 3분위수 계산
+Q3_dog_w = quantile(data_dog$weight_kg,probs = c(0.75),na.rm = TRUE)
+
+LC_dog_w = Q1_dog_w - 1.5 * ( Q3_dog_w - Q1_dog_w) # 아래 울타리
+UC_dog_w = Q3_dog_w + 1.5 * ( Q3_dog_w - Q1_dog_w) # 위 울타리
+
+# IQR 방법_개 무게
+data_cat$weight_kg %>% summary
+
+# 1분위수 계산
+Q1_cat_w = quantile(data_cat$weight_kg ,probs = c(0.25),na.rm = TRUE) 
+# 3분위수 계산
+Q3_cat_w = quantile(data_cat$weight_kg,probs = c(0.75),na.rm = TRUE)
+
+LC_cat_w = Q1_cat_w - 1.5 * ( Q3_cat_w - Q1_cat_w) # 아래 울타리
+UC_cat_w = Q3_cat_w + 1.5 * ( Q3_cat_w - Q1_cat_w) # 위 울타리
+
+
+data_cat %>% 
+  filter(LC_cat_w <= weight_kg & weight_kg <= UC_cat_w) %>% 
+  ggplot(aes(y=weight_kg)) + 
+  geom_boxplot()
+
+
+
+data_dog %>% 
+  ggplot(aes(y = age)) +
+  geom_boxplot(fill = "#28abb9", alpha = .4) + 
+  theme_classic()
+
+data_cat %>% 
+  ggplot(aes(y = age)) +
+  geom_boxplot(fill =  "#a37eba", alpha = .4)+
+  theme_classic()
+
+
+MDIQR = function(MC){
+  L = 1.5*exp(-4*MC)
+  U = 1.5*exp(3*MC)
+  return(c(L,U))
+}
+
+
+
+data_dog %>% 
+  ggplot(aes(x=weight_kg)) +
+  geom_histogram() + 
+  theme_classic()
+
+data_cat %>% 
+  ggplot(aes(x=weight_kg)) +
+  geom_histogram() + 
+  theme_classic()
+
+data_dog %>% 
+  ggplot(aes(x=as.factor(age))) +
+  geom_bar() + 
+  theme_classic()
+
+data_cat %>% 
+  ggplot(aes(x=as.factor(age))) +
+  geom_bar() + 
+  theme_classic()
+
+
+```
+
+
+
+
+```{r}
+
+
+
+qqnorm(data_dog$age)
+qqnorm(data_dog$weight_kg)
+
+
+
+qqnorm(data_dog$weight_kg)
+
+data_dog %>% 
+  ggplot(aes(y=weight_kg)) + 
+  geom_boxplot(fill = "#28abb9", alpha = 0.5) + 
+  theme_classic()
+
+data_cat %>% 
+  ggplot(aes(y=weight_kg)) + 
+  geom_boxplot(fill = "#a37eba", alpha = 0.5) + 
+  theme_classic()
+
+
+data_dog %>% 
+  ggplot(aes(y=log(age))) +
+  geom_boxplot()
+
+medcouple
+
+
+
+
+
+```
+
+
+
+
+
+
+#성별
+```{r}
+
+
+data_dog %>% 
+  group_by(sex) %>% 
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>% 
+  ggplot(aes(x="", y=count)) + 
+  geom_bar(width = 1, stat = "identity", fill = c("lightskyblue", "indianred1", "lightgoldenrod1"), alpha = .75) + 
+  coord_polar("y", start = 0) + 
+  theme_void()
+
+data_dog %>% 
+  ggplo
+
+data_dog %>% 
+  ggplot(aes(x=sex, y=age)) + 
+  geom_boxplot(fill = c("lightskyblue", "indianred1", "lightgoldenrod1"), alpha = .70) +
+  theme_classic()
+
+data_dog %>% 
+  filter(LC_dog_w <= weight_kg & weight_kg <= UC_dog_w) %>% 
+  ggplot(aes(x=sex, y=weight_kg)) + 
+    geom_boxplot(fill = c("lightskyblue", "indianred1", "lightgoldenrod1"), alpha = .70, outlier.color = "red") +
+    theme_classic()
+
+
+data_dog %>% 
+  mutate(year = year(noticeSdt),
+         adoptionYN = as.factor(adoptionYN)) %>% 
+  ggplot(aes(x=adoptionYN)) +
+  geom_bar(position = "fill", aes(fill = sex), alpha = .75, width = .7) + 
+  scale_fill_manual(values = c( "indianred1","lightskyblue", "lightgoldenrod1")) + 
+  theme_classic()
+
+data_cat %>% 
+  mutate(year = year(noticeSdt),
+         adoptionYN = as.factor(adoptionYN)) %>% 
+  ggplot(aes(x=adoptionYN)) +
+  geom_bar(position = "fill", aes(fill = sex), alpha = .75, width = .7) + 
+  scale_fill_manual(values = c( "indianred1","lightskyblue", "lightgoldenrod1")) + 
+  theme_classic()
+
+
+data_cat %>% 
+  group_by(sex) %>% 
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>% 
+  ggplot(aes(x="", y=count)) + 
+  geom_bar(width = 1, stat = "identity", fill = c("lightskyblue", "indianred1", "lightgoldenrod1"), alpha = .75) + 
+  coord_polar("y", start = 0) + 
+  theme_void()
+
+data_cat %>% 
+  ggplot(aes(x=sex, y=age)) + 
+  geom_boxplot(fill = c("lightskyblue", "indianred1", "lightgoldenrod1"), alpha = .75, outlier.color = "red") +
+  theme_classic()
+
+data_cat %>% 
+  group_by(sex, adoptionYN) %>% 
+  summarise(n())
+
+
+```
+
+
+
+# 상태
+```{r}
+
+
+data_dog %$% unique(state) # 상태는 총 7개의 범주
+myPal <- RColorBrewer::brewer.pal(n = 7, name = "Pastel2")
+#### 전체 상태 (연도 구분 X)
+#상태 파이 차트
+#개
+data_dog %>% 
+  mutate(year = year(noticeSdt)) %>% 
+  group_by(state) %>% 
+  summarise(count = n()) %>%
+  mutate(prop = count / sum(count) ) %>% 
+  arrange(desc(count)) %>% 
+  ggplot(aes(x="", y=count)) + 
+  geom_bar(width = 1, stat = "identity", fill = myPal) + 
+  coord_polar("y", start = 0) + 
+  theme_void()
+
+#고양이
+data_cat %>% 
+  mutate(year = year(noticeSdt)) %>% 
+  group_by(state) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  mutate(prop = count*100 /sum(count)) %>% 
+  ggplot(aes(x="", y=count)) + 
+  geom_bar(width = 1, stat = "identity", fill = c("#CBD5E8","#B3E2CD","#FDCDAC","#E6F5C9","#D9D9D9","#F4CAE4","#FFF2AE")) + 
+  coord_polar("y", start = 0) + 
+  theme_void()
+
+
+
+#상태에 따른 나이 분포
+#age_boxplot
+#개와 고양이 나이 분포 비교
+rbind(data_dog, data_cat) %>% 
+  ggplot(aes(x=kind, y = age)) +
+  geom_boxplot(fill = c("lightcoral", "#28abb9"), outlier.color = "red", alpha = .6) + 
+  theme_classic()
+
+#개 상태 범주에 따른 나이 분포
+data_dog %>% 
+  mutate(year = year(noticeSdt)) %>% 
+  ggplot(aes(x=state, y = age)) +
+  geom_boxplot(fill = myPal, color= "snow4", alpha = .7, outlier.color = "red") +
+  theme_classic()
+
+#고양이 상태 범주에 따른 나이 분포
+data_cat %>% 
+  mutate(year = year(noticeSdt)) %>% 
+  ggplot(aes(x=state, y = age)) +
+  geom_boxplot(fill = myPal, color= "snow4", alpha = .7, outlier.color = "red") +
+  theme_classic()
+
+
+
+```
+강아지 : 자연사, 입양, 보호중, 방사(0%), 반환 기증
+입양률은 전체 31%, 그 외 (자연사 18.4% 안락사 29.1% -> 사망), 반환 15.2% 보호중 4.8% 그외 약 1.5%
+입양되지 않고, 죽어가는 개체수 비율은 50%에 육박, 생존과 사망 비율은 50:50 정도
+
+고양이 : 자연사, 입양, 안락사,보호중, 방사 ,반환, 기증
+고양이의 경우 입양률이 35.6%, 자연사율이 51.6% , 안락사율이 4.7% > 
+고양이가 강아지에 비해서 자연사율이 유독 높은이유는?
+보호소에 들어오게 되는 나이에 차이가 있어서 그럴까? 
+어린 개체일수록 면역력이 약해서 자연사 할 확률이 높은데 고양이가 강아지에 비해서 어린 개체수가 많이 들어오는거지
+
+#중성화여부
+```{r}
+fill = c("lightcoral", "#28abb9")
+
+
+
+########################################개 아래
+
+# 입양 ㅇ, 중성화 여부
+data_dog %>%
+  filter(adoptionYN == 1) %>% 
+  group_by(neuterYN) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x="", y=count)) + 
+  geom_bar(width = 1, stat = "identity", fill = c("#ffa5a5", "#28abb9","#E3D955"), alpha = 0.6) + 
+  coord_polar("y", start = 0) + 
+  # geom_text(aes(label = paste0(round(count*100/sum(count), digits = 1),"%")), 
+  #           position = position_stack(vjust = 0.5),color = "black") +
+  theme_void()
+
+# 입양 x, 중성화 여부
+data_dog %>%
+  filter(adoptionYN == 0) %>% 
+  group_by(neuterYN) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x="", y=count)) + 
+  geom_bar(width = 1, stat = "identity", fill = c("#ffa5a5", "#28abb9","#E3D955") , alpha = 0.6) + 
+  coord_polar("y", start = 0) + 
+  # geom_text(aes(label = paste0(round(count*100/sum(count), digits = 1),"%")), 
+  #           position = position_stack(vjust = 0.5),color = "black") +
+  theme_void()
+
+# 입양 여부에 중성화 여부가 큰 영향을 미칠까?
+# H0 : p1 = p2 
+n1 = data_dog[adoptionYN == 1 , .N] #입양된 친구들 전체
+n2 = data_dog[adoptionYN == 0 , .N] #입양안된 친구들 전체
+
+x1 = data_dog[adoptionYN == 1, .N, by = neuterYN][neuterYN == "Y", N] #입양된 친구들 중 중성화
+x2 = data_dog[adoptionYN == 0, .N, by = neuterYN][neuterYN == "Y", N] #입양안된 친구들 중 중성화
+
+
+
+prop.test(x=c(x1,x2), n=c(n1,n2), alternative = "two.sided")
+prop.test(x=c(x1,x2), n=c(n1,n2), alternative = "greater")
+# 입양 된 친구들의 중성화 비율이 높다! (H0 기각 땅땅땅)
+# 근데 데이터 자체가 불균형 해서 신뢰할 수 있을까..?
+
+########################################고양이 아래
+
+data_cat %>%
+  filter(adoptionYN == 1) %>% 
+  group_by(neuterYN) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x="", y=count)) + 
+  geom_bar(width = 1, stat = "identity", fill = c("#ffa5a5", "#28abb9","#E3D955"), alpha = .6) + 
+  coord_polar("y", start = 0) + 
+  geom_text(aes(label = paste0(round(count*100/sum(count), digits = 1),"%")), 
+             position = position_stack(vjust = 0.5),color = "black") +
+  theme_void()
+
+data_cat %>%
+  filter(adoptionYN == 0) %>% 
+  group_by(neuterYN) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x="", y=count)) + 
+  geom_bar(width = 1, stat = "identity", fill = c("#ffa5a5", "#28abb9","#E3D955"), alpha = .6) + 
+  coord_polar("y", start = 0) +
+  theme_void()
+
+
+# 입양 여부에 중성화 여부가 큰 영향을 미칠까?
+# H0 : p1 = p2 
+n1 = data_cat[adoptionYN == 1 , .N] #입양된 친구들 전체
+n2 = data_cat[adoptionYN == 0 , .N] #입양안된 친구들 전체
+
+x1 = data_cat[adoptionYN == 1, .N, by = neuterYN][neuterYN == "Y", N] #입양된 친구들 중 중성화
+x2 = data_cat[adoptionYN == 0, .N, by = neuterYN][neuterYN == "Y", N] #입양안된 친구들 중 중성화
+n1;n2;x1;x2
+prop.test(x=c(x1,x2), n=c(n1,n2), alternative = "greater")
+# 입양 된 친구들의 중성화 비율이 높다! (H0 기각 땅땅땅)
+# 근데 데이터 자체가 불균형 해서 신뢰할 수 있을까..?
+
+
+```
+
+
+
+```{r}
+
+
+##################################### 개 체중
+data_dog %>% 
+  ggplot(aes(y=weight_kg)) +
+  geom_boxplot()
+
+data_dog %>% 
+  filter( weight_kg <= 25) %>% 
+  ggplot(aes(y=weight_kg)) +
+  geom_boxplot()
+
+data_dog %>% 
+  mutate(adoptionYN = adoptionYN %>% as.factor) %>%
+  filter( weight_kg <= 25) %>% 
+  ggplot(aes(x = adoptionYN, y=weight_kg)) +
+  geom_boxplot(aes(fill = adoptionYN))
+
+summary(data_dog$weight_kg)
+summary(data_cat$weight_kg)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+# IQR
+
+
+# 1분위수 계산
+Q1_dog_w = quantile(data_dog$weight_kg ,probs = c(0.25),na.rm = TRUE) 
+# 3분위수 계산
+Q3_dog_w = quantile(data_dog$weight_kg,probs = c(0.75),na.rm = TRUE)
+
+IQR_dog_w = Q3_dog_w - Q1_dog_w
+
+LC_dog_w = Q1_dog_w - 1.5 * IQR_dog_w # 아래 울타리
+UC_dog_w = Q3_dog_w + 1.5 * IQR_dog_w # 위 울타리
+c(LC_dog_w, UC_dog_w)
+
+
+
+# SIQR
+
+# 1분위수 계산
+Q1_dog_w = quantile(data_dog$weight_kg ,probs = c(0.25),na.rm = TRUE) 
+# 2분위수 계산
+Q2_dog_w = quantile(data_dog$weight_kg,probs = c(0.50),na.rm = TRUE)
+# 3분위수 계산
+Q3_dog_w = quantile(data_dog$weight_kg,probs = c(0.75),na.rm = TRUE)
+
+SIQR1 = Q2_dog_w - Q1_dog_w
+SIQR2 = Q3_dog_w - Q2_dog_w
+
+LC_dog_w = Q1_dog_w - 3 * SIQR1 # 아래 울타리
+UC_dog_w = Q3_dog_w + 3 * SIQR2 # 위 울타리
+c(LC_dog_w, UC_dog_w)
+
+
+
+# Medcouple
+MC = medcouple(data_dog$weight_kg)
+
+# 1분위수 계산
+Q1_dog_w = quantile(data_dog$weight_kg ,probs = c(0.25),na.rm = TRUE) 
+# 3분위수 계산
+Q3_dog_w = quantile(data_dog$weight_kg,probs = c(0.75),na.rm = TRUE)
+
+IQR_dog_w = Q3_dog_w - Q1_dog_w
+
+#
+MM = MDIQR(MC)*IQR_dog_w
+
+
+
+LC_dog_w = Q1_dog_w - 1.5 * MM[1] # 아래 울타리
+UC_dog_w = Q3_dog_w + 1.5 * MM[2] # 위 울타리
+c(LC_dog_w, UC_dog_w)
+
+
+# Medcouple
+MC = medcouple(data_dog$age)
+
+# 1분위수 계산
+Q1_dog_w = quantile(data_dog$age ,probs = c(0.25),na.rm = TRUE) 
+# 3분위수 계산
+Q3_dog_w = quantile(data_dog$age,probs = c(0.75),na.rm = TRUE)
+
+IQR_dog_w = Q3_dog_w - Q1_dog_w
+
+#
+MM = MDIQR(MC)*IQR_dog_w
+
+LC_dog_w = Q1_dog_w - 1.5 * MM[1] # 아래 울타리
+UC_dog_w = Q3_dog_w + 1.5 * MM[2] # 위 울타리
+c(LC_dog_w, UC_dog_w)
+
+
+
+# SIQR
+
+# 1분위수 계산
+Q1_dog_w = quantile(data_dog$weight_kg ,probs = c(0.25),na.rm = TRUE) 
+# 2분위수 계산
+Q2_dog_w = quantile(data_dog$weight_kg,probs = c(0.50),na.rm = TRUE)
+# 3분위수 계산
+Q3_dog_w = quantile(data_dog$weight_kg,probs = c(0.75),na.rm = TRUE)
+
+SIQR1 = Q2_dog_w - Q1_dog_w
+SIQR2 = Q3_dog_w - Q2_dog_w
+
+LC_dog_w = Q1_dog_w - 3 * SIQR1 # 아래 울타리
+UC_dog_w = Q3_dog_w + 3 * SIQR2 # 위 울타리
+c(LC_dog_w, UC_dog_w)
+
+data_dog %>% 
+  filter( UC_dog_w >= weight_kg) %>% 
+  ggplot( aes( y= weight_kg)) + 
+  geom_boxplot()
+
+
+# SIQR
+
+# 1분위수 계산
+Q1_cat_w = quantile(data_cat$weight_kg ,probs = c(0.25),na.rm = TRUE) 
+# 2분위수 계산
+Q2_cat_w = quantile(data_cat$weight_kg,probs = c(0.50),na.rm = TRUE)
+# 3분위수 계산
+Q3_cat_w = quantile(data_cat$weight_kg,probs = c(0.75),na.rm = TRUE)
+
+SIQR1 = Q2_cat_w - Q1_cat_w
+SIQR2 = Q3_cat_w - Q2_cat_w
+
+LC_cat_w = Q1_cat_w - 3 * SIQR1 # 아래 울타리
+UC_cat_w = Q3_cat_w + 3 * SIQR2 # 위 울타리
+c(LC_cat_w, UC_cat_w)
+
+
+
+data_cat %>% 
+  filter( UC_cat_w >= weight_kg) %>% 
+  ggplot( aes( y= weight_kg)) + 
+  geom_boxplot()
+
+```

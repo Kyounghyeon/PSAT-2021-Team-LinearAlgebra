@@ -1,0 +1,116 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 5 4 '
+output: html_document
+---
+
+
+```{r message=FALSE, warning=FALSE}
+
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(data.table)
+library(gridExtra)
+library(reshape2)
+library(lubridate)
+library(RColorBrewer)
+library(rlang)
+library(corrplot)
+library(gridExtra)
+library(randomForest)
+library(MLmetrics)
+library(caret)
+library(fastDummies)
+library(iml)
+
+```
+
+
+```{r}
+
+###??????????Ʈ(Ĺ?ν?Ʈ)+cv_fold================================
+result <- fread("rf_dog_cbs.csv",header = TRUE,data.table = FALSE)
+result = arrange(result,desc(f1score))
+
+train_dog <- fread("cbs/dog_train.csv",header = TRUE,data.table = FALSE)
+test_dog <- fread("cbs/dog_test.csv",header = TRUE,data.table = FALSE)
+train_dog$adoptionYN = as.factor(train_dog$adoptionYN)
+test_dog$adoptionYN = as.factor(test_dog$adoptionYN)
+
+set.seed(613)
+rf_mod_1 = randomForest(adoptionYN~., train_dog, mtry = result[1,'mtry'], ntree = result[1, 'ntree'])
+rf_pred_1 = predict(rf_mod_1, newdata = select(test_dog, -adoptionYN))
+
+#????
+Accuracy(rf_pred_1,  test_dog$adoptionYN) #0.7360648
+F1_Score(y_pred = rf_pred_1, y_true = test_dog$adoptionYN) ##0.8001264
+
+
+
+
+#####################################################
+#####################################################
+
+##############
+### ?????? ###
+##############
+
+###??????????Ʈ(????)+cv_fold================================
+## ???? ==================================
+result <- fread("rf_cat_dum.csv",header = TRUE,data.table = FALSE)
+result = arrange(result,desc(f1score))
+# 
+train_cat <- fread("flt_train_cat.csv",header = TRUE,data.table = FALSE)
+test_cat <- fread("flt_test_cat.csv",header = TRUE,data.table = FALSE)
+
+#??ó??
+train_cat$adoptionYN = as.factor(train_cat$adoptionYN)
+train_cat$season = as.factor(train_cat$season)
+train_cat$neuterYN = as.factor(train_cat$neuterYN)
+train_cat$sex = as.factor(train_cat$sex)
+train_cat$hair = as.factor(train_cat$hair)
+train_cat$color = as.factor(train_cat$color)
+
+test_cat$adoptionYN = as.factor(test_cat$adoptionYN)
+test_cat$season = as.factor(test_cat$season)
+test_cat$neuterYN = as.factor(test_cat$neuterYN)
+test_cat$sex = as.factor(test_cat$sex)
+test_cat$hair = as.factor(test_cat$hair)
+test_cat$color = as.factor(test_cat$color)
+
+
+train_cat2 <- dummy_cols(train_cat, 
+                         select_columns = c('neuterYN','season', 'sex', 'hair', 'color'),
+                         remove_selected_columns = TRUE)
+
+test_cat2 <- dummy_cols(test_cat, 
+                        select_columns = c('neuterYN','season', 'sex', 'hair', 'color'),
+                        remove_selected_columns = TRUE)
+
+
+#scaling
+train_cat2[,c(2, 6,7, 8, 10,11,12)] <- scale(train_cat2[,c(2, 6,7, 8, 10,11,12)])
+test_cat2[,c(2, 6,7, 8, 10,11,12)] <- scale(test_cat2[,c(2, 6,7, 8, 10,11,12)])
+
+set.seed(613)
+rf_mod_1 = randomForest(adoptionYN~., train_cat, mtry = result[1,'mtry'], ntree = result[1, 'ntree'])
+rf_pred_1 = predict(rf_mod_1, newdata = select(test_cat, -adoptionYN))
+
+#????
+Accuracy(rf_pred_1,  test_cat$adoptionYN) #0.751847
+F1_Score(y_pred = rf_pred_1, y_true = test_cat$adoptionYN) #0.8090301
+
+varImpPlot(rf_mod_1)
+
+pred = Predictor$new(model = rf_mod_1, data = test_cat %>% dplyr::select(-adoptionYN), y= test_cat$adoptionYN, type="prob")
+
+imp = FeatureImp$new(pred, loss = "ce")
+plot(imp);varImpPlot(rf_mod_1)
+imp.dat = imp$result
+ggplot(imp.dat, aes(x = feature, y = importance)) +
+  geom_point() +
+  theme_bw()
+
+```

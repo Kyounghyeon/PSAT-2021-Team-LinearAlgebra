@@ -1,0 +1,440 @@
+---
+title: "Week 2 Package"
+author: "KyounghyeonKo"
+date: '2021 3 15 '
+output: html_document
+---
+
+
+# Chapter 1. 모델링을 위한 전처리
+
+### 문제0. 기본 세팅
+```{r message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(data.table)
+library(VIM)
+setwd("C:/Users/RRR/Desktop/PSAT/Package/Week 2")
+data = fread("C:/Users/whoe9/Desktop/PSAT/Package/Week 2/data.csv")
+
+```
+
+### 문제1. `'2'`로 끝나는 변수제거
+```{r}
+
+data = data %>% dplyr::select(-ends_with('2')) 
+
+#제거 후
+data %>% colnames
+
+```
+
+
+### 문제2. `VIM`패키지를 이용해 시각화 후 해석
+```{r}
+
+data %>% aggr(col = c("lightyellow", "pink"),prop = F, numbers = T)
+
+
+```
+
+
+- 왼쪽 plot은 각 변수(Column)별 `Missing value`의 개수를 보여준다.<br>
+- 오른쪽 plot은 데이터프레임 전체적으로 `Missing Value`가가 어떤식으로 얼마나 분포해 있는지 색깔과 오른쪽 숫자를 통해 보여준다. <br>
+- 오른쪽 plot의 맨 윗줄을 예로 설명하면, (변수 이름이 보이지는 않지만) 2번째 열에 위치한 변수`bedcount`와 마지막 두 개 열의 변수 `employee1`과 `ownerChange`가 `Missing Value`인 행은 한 개라는 의미이다. 
+- NA가 한 개도 없는 obs(행)의 개수는 총 279개이다.
+
+### 문제 3-1, 3-2. NA Imputation w/ mode & mean
+
+ 1. 각 열 별 mean 값 저장
+```{r}
+
+mean_val = data %>%
+  select_if(is.numeric) %>% 
+  lapply(mean, na.rm=T)
+
+
+```
+
+ 2. mode function 만들고 mode 값 저장
+```{r}
+#mode function
+get_mode = function(x) {
+  if ( anyNA(x) ) x = x[!is.na(x)]
+  ux = unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+  
+#각 열 별 mode 값 저장
+mode_val = data %>% 
+  select_if(is.character) %>% 
+  lapply(get_mode)
+```
+
+3. Imputation
+```{r}
+#각 열 별 Imputation할 값을 data 열 순서에 맞춰 배열
+impute_val = c(mode_val[1],mean_val,mode_val[2])
+
+#Imputation
+data = data %>%
+  replace_na(impute_val)
+```
+
+
+### 문제 4. `OC`변수 변경
+```{r}
+
+data = data %>% 
+  mutate(
+    OC = ifelse(OC=='open', 1, 0)
+  )
+
+
+```
+
+
+
+### 문제 5. `integer`자료형을 `numeric`자료형으로 변경
+```{r}
+
+#integer자료형들은 모두 integer64의 자료형을 가지므로
+#integer64 판별 함수 생성
+is.integer64 = function(x){
+  class(x) == "integer64"
+}
+
+#변경
+data = data %>% 
+  mutate_if(is.integer64, as.numeric)
+
+str(data)
+
+```
+
+----------------------------------------------------------
+
+# Chapter 2. 분류모델
+
+### 문제 0. 라이브러리 불러오기
+```{r message=FALSE, warning=FALSE}
+library(caret)
+library(MLmetrics)
+library(randomForest)
+
+```
+
+### 문제 1. Data Split
+```{r}
+
+data <- data %>% 
+  mutate(OC = as.factor(OC),
+         ownerChange = as.factor(ownerChange))
+
+set.seed(1234)
+test_index = createDataPartition(data$OC, p=0.3, list=F)
+train_data = data[-test_index,]
+test_data = data[test_index,]
+
+```
+
+
+### 문제 2. Hold-out
+```{r message=FALSE, warning=FALSE}
+
+#모델 fitting
+logis_model = glm(OC ~., data=train_data, family=binomial)
+
+#Validation Set예측
+pred_OC = predict(logis_model, newdata = test_data, type="response") %>% round
+true_OC = test_data$OC
+
+#Accuracy 측정
+Accuracy(pred_OC,true_OC)
+
+```
+
+
+### 문제 3. Feature selection & Hold-out
+
+1. 단계적선택법으로 AIC가 가장 작은 모델을 `stepwise_logis_model`에 저장
+```{r message=FALSE, warning=FALSE}
+
+stepwise_logis_model = step(logis_model, direction = "both")
+
+#변수 선택된 모델
+stepwise_logis_model
+```
+
+2. `stepwise_logis_model`로 validation Set 예측
+```{r}
+
+pred_OC = predict(stepwise_logis_model, 
+                  newdata = test_data,
+                  type = "response") %>% round
+
+true_OC = test_data$OC
+
+```
+
+3. Accuracy 측정
+```{r}
+
+Accuracy(pred_OC,true_OC)
+
+```
+
+
+### 문제 4. 데이터 프레임 `acc_rf`생성
+```{r}
+
+acc_rf = expand.grid(mtry=3:5, acc=NA)
+acc_rf
+
+```
+
+
+
+### 문제 5. 5-fold CV Grid Search
+```{r}
+
+#선택된 변수로만 구성된 data 생성
+selected_data = get_all_vars(stepwise_logis_model$formula, data=data)
+
+#fold 구성
+set.seed(1234)
+fold = createFolds(data$OC, k=5)
+
+#기본값 설정
+ntree = 10
+
+for (m in 1:nrow(acc_rf)){
+
+  mtry = acc_rf[m,"mtry"]
+  acc = NULL
+  
+  for ( k in 1:length(fold)){
+    
+    #train, test data 생성
+    fold_test_index = fold[[k]]
+    fold_test_data = selected_data[fold_test_index,]
+    fold_train_data = selected_data[-fold_test_index,]
+   
+    #모델링
+    rf_model = fold_train_data %>%
+                        randomForest(OC ~., data =., ntree = 10, mtry = mtry)
+    
+    #예측값
+    pred_OC = rf_model %>% predict(newdata = fold_test_data, type="response")
+    true_OC = fold_test_data$OC
+    
+    #Accuracy 기록
+    present_acc = Accuracy(pred_OC, true_OC)
+    acc = c(acc, present_acc)
+    
+  }
+  
+  #각 mtry별 accuracy 평균값 저장
+  mean_acc = mean(acc)
+  acc_rf[m,"acc"] = mean_acc
+}
+
+acc_rf
+
+```
+
+
+### 문제 6. `acc_rf`에서 **가장 높은 Accuracy값의 행**을 출력
+```{r}
+
+acc_rf %>% 
+  filter(acc==max(acc))
+
+```
+
+### 문제 7. 파라미터 선택 후 랜덤포레스트 모델로 학습시키고, 중요 변수 시각화
+1. 학습 후 시각화
+```{r}
+
+#stepwise에서 선택된 변수로 train/test셋 구성
+selected_train_data = get_all_vars(stepwise_logis_model$formula, data=train_data)
+selected_test_data = get_all_vars(stepwise_logis_model$formula, data=test_data)
+
+#parameter 설정
+mtry = acc_rf[which.max(acc_rf$acc),"mtry"]
+ntree = 10
+
+#모델링
+rf_model = selected_train_data %>% 
+  randomForest(OC~., data=., mtry = mtry, ntree = ntree)
+
+#시각화를 위해 important variable을 data frame으로 저장
+imp = varImpPlot(rf_model) %>% 
+  as.data.frame 
+
+#시각화
+imp %>% 
+  mutate( name =  rownames(.)) %>% 
+  ggplot(mapping = aes(x=MeanDecreaseGini, y=reorder(name, MeanDecreaseGini)))+
+  geom_segment(aes(x=0, y=reorder(name, MeanDecreaseGini),
+                   xend = MeanDecreaseGini, yend = reorder(name, MeanDecreaseGini)),
+               color = "pink") +
+  geom_point(color = "pink") +
+  labs(y = "Variable Name") + 
+  theme_classic()
+
+
+
+```
+
+<p>*seed값이 문제인 걸까요...???,,,, 아무리 해도 변수 순서가 똑같이 안나오네요,,, 슬퍼요 ㅠㅠ* <br>
+
+<p>**MeanDecreaseGini**(이하 MDG) 는 랜덤포레스트 모델에서 변수(또는 feature)들의 중요도를 나타낼 때 사용된다.
+<p>MDG는 각 변수가 노드의 분류 기준으로 들어갔을 때 감소하는 지니(불균형함)의 평균으로 MDG가 높을수록 **'해당 변수가 분류를 잘한다'*, *'중요한 변수라고 생각할 만하다'** 라고 해석할 수 있다.
+<p>위 결과를 보면 `revenue1`의 MDG가 가장 높으므로 `revenue1`이 분류 기준으로 노드에 들어갔을 때 가장 분류를 잘 한다고 생각할 수 있다. 그 다음으로는 `sga1`이 뒤를 이었고, `noe1`,`employee1`,`profit1`이 비슷한 MDG를 기록해 어느정도 고려할 변수라고 생각할 수 있다.
+
+
+2. 모델 평가
+```{r}
+
+pred_rf_OC = predict(rf_model, newdata = selected_test_data, type="response")
+true_rf_OC = selected_test_data$OC
+
+Accuracy(pred_rf_OC, true_rf_OC)
+
+```
+
+-------------------------------------------------- 
+
+# Chapter 3. 회귀모델
+### 문제 0. 라이브러리 불러오기
+```{r message=FALSE, warning=FALSE}
+
+library(MASS)
+
+```
+
+### 문제 1. 데이터셋 Split
+```{r}
+
+set.seed(1234)
+test_index = createDataPartition(Boston$medv, p=0.2, list=F)
+test_data = Boston[test_index,]
+train_data = Boston[-test_index,]
+
+```
+
+
+### 문제 2. grid data frame 생성 `RMSE_rf`
+```{r}
+
+RMSE_rf = expand.grid(mtry=c(3,4,5), ntree=c(10,100,200), RMSE = NA)
+RMSE_rf
+
+```
+
+
+### 문제 3. 5-fold CV Grid Search
+```{r}
+
+#fold 구성
+fold = createFolds(Boston$medv, k=5)
+
+#각 parameter 별로 5-fold CV 실행
+for (m in 1:nrow(RMSE_rf)){
+  
+  #기본값 설정
+  mtry = RMSE_rf[m,"mtry"]
+  ntree = RMSE_rf[m,"ntree"]
+  RMSE = NULL
+  
+  # 5-fold CV -> RMSE의 평균 계산
+  for ( k in 1:length(fold)){
+    
+    #train, test data 생성
+    fold_test_index = fold[[k]]
+    fold_test_data = Boston[fold_test_index,]
+    fold_train_data = Boston[-fold_test_index,]
+    
+    #모델링
+    rf_model = fold_train_data %>%
+                        randomForest(medv ~., data =., ntree = ntree, mtry = mtry)
+    
+    #예측값
+    pred_medv = rf_model %>% predict(newdata = fold_test_data)
+    true_medv = fold_test_data$medv
+    present_RMSE = RMSE(pred_medv, true_medv)
+    RMSE = c(RMSE, present_RMSE)
+    
+  }
+  
+  #각 parameter별 RMSE 평균값 저장
+  mean_RMSE = mean(RMSE)
+  RMSE_rf[m,"RMSE"]=mean_RMSE
+}
+RMSE_rf
+
+```
+
+
+### 문제 4. 가장 낮은 RMSE값의 행 출력
+```{r}
+
+RMSE_rf %>% 
+  filter(RMSE == min(RMSE))
+
+```
+
+### 문제 5. 파라미터 선택 후 랜덤포레스트 모델로 학습시키고, test set의 RMSE구하기
+```{r}
+
+#파라미터 저장
+param = RMSE_rf %>% 
+  filter(RMSE==min(RMSE)) %>% 
+  dplyr::select(mtry, ntree)
+
+mtry = param$mtry
+ntree = param$ntree
+
+#모델링 학습
+rf_model = train_data %>% 
+  randomForest(medv~., data = ., ntree = ntree, mtry = mtry)
+
+#평가
+pred_medv = predict(rf_model, newdata = test_data)
+true_medv = test_data$medv
+RMSE(pred_medv, true_medv)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

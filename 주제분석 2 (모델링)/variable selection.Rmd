@@ -1,0 +1,526 @@
+---
+title: "Modeling"
+author: "Ko"
+date: '2021 4 29 '
+output: html_document
+---
+
+# 나이랑 몸무게 이상치 제거 안하기로 했고
+
+# 품종 변수 나눴고 (총 다섯개 했음), 개 5개 고양이 1개
+
+# 아래는 범주형 변수 검정해봤고
+```{r message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(magrittr)
+library(plyr)
+library(caret)
+library(data.table)
+library(vcd) # 카이제곱 검정 및 가능도비 검정에 사용
+library(DescTools) # 가능도비 검정에 사용
+# library(catboost)
+library(MLmetrics)
+library(GoodmanKruskal)
+library(epitools)
+library(vcdExtra)
+library(fastDummies)
+
+train_dog = fread("train_dog.csv")
+train_cat = fread("train_cat.csv")
+
+
+```
+
+
+
+```{r}
+
+#group_akc가 10, 9인 걸 8(others)로 넣자
+train_dog$group_akc = train_dog$group_akc %>% as.character() %>% 
+  revalue(c("9" = "8",
+          "10" = "8")) %>% as.numeric()
+
+# 범주형 변수만 뽑아내자
+train_dog %>% colnames
+train_dog = train_dog %>% dplyr::select(adoptionYN,season, sex,neuterYN, color, size_google, group_fic, size_akc, group_akc, activity_level)
+
+train_cat %>% colnames
+train_cat = train_cat %>% dplyr::select(adoptionYN, sex, neuterYN, season, hair, color)
+
+
+# 애들 이름을 알아보기 쉽게 바꿔주자
+train_dog$group_akc = train_dog$group_akc %>% as.character() %>% 
+    plyr::revalue(c("0" = "mixed",
+            "1"="sporting",
+            "2"="hound",
+            "3"="working",
+            "4"="terrier",
+            "5"="toy",
+            "6"="non-sporting",
+            "7"="herding",
+            "8"="others"
+            ))
+
+train_dog$group_fic %<>% as.character %>% 
+    plyr::revalue(c("0" = "mixed",
+            "1" = "Sheepdogs and Cattledogs" ,
+            "2" = "Pinscher and Schnauzer",
+            "3" = "Terrirs",
+            "4" = "Dachshunds" ,
+            "5" = "Spitz",
+            "6" = "Scenthounds",
+            "7" = "WaterDogs",
+            "8" = "Pointing",
+            "9" =  "Toy",
+            "10" ="Sighthounds",
+            "11" = "Unknown"
+            ))
+
+train_dog$size_google %<>% as.character() %>% 
+    plyr::revalue(c("0" = "U",
+            "1" = "S",
+            "2" = "M",
+            "3" = "L"))
+
+train_dog$size_akc %<>% as.character() %>% 
+    plyr::revalue(c("0" = "U",
+            "1" = "XS",
+            "2" = "S",
+            "3" = "M",
+            "4" = "L",
+            "5" = "XL"))
+
+train_dog$color = train_dog$color %>% as.character() %>% 
+  plyr::revalue(c("0" = "etc",
+            "1"= "black",
+            "2"= "blackbrown",
+            "3"= "blackbrownwhite",
+            "4"= "blackwhite",
+            "5"= "brown",        
+            "6"="brownwhite",
+            "7"= "white"
+            ))
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+#개 범주 상관관계
+GKtauDataframe(train_dog[,-"adoptionYN"]) %>% plot
+
+#사이즈랑 
+GoodmanKruskalGamma(train_dog$size_akc[tran_dog$size_akc], train_dog$activity_level)
+
+GKgamma(table(train_dog$size_google, train_dog$size_akc))
+
+
+# 개 카이제곱
+Y_dog = train_dog$adoptionYN
+tb_dog_group_fic = table(Y_dog, train_dog$group_fic)
+tb_dog_group_akc = table(Y_dog, train_dog$group_akc)
+tb_dog_season = table(Y_dog, train_dog$season)
+tb_dog_neuter = table(Y_dog, train_dog$neuterYN)
+tb_dog_sex = table(Y_dog, train_dog$sex)
+tb_dog_color = table(Y_dog, train_dog$color)
+
+tb_dog_size_akc = table(Y_dog, train_dog$size_akc) # 연속
+tb_dog_activity_level = table(Y_dog, train_dog$activity_level) # 연속
+tb_dog_size_google = table(Y_dog, train_dog$size_google) # 연속
+
+
+assocstats(tb_dog_group_fic)
+assocstats(tb_dog_group_akc)
+assocstats(tb_dog_season)
+assocstats(tb_dog_neuter)
+assocstats(tb_dog_sex)
+assocstats(tb_dog_color)
+
+train = fread("train_dog.csv")
+wilcox.test(y=train$adoptionYN, x=train$size_akc)
+
+train %>% View
+
+
+assocstats(tb_dog_activity_level) # 연속
+assocstats(tb_dog_size_google) # 연속
+assocstats(tb_dog_size_akc) # 연속
+
+
+#순서형
+
+chisq.test(tb_dog_group_fic)
+chisq.test(tb_dog_group_akc)
+cor.test(x=train_dog$size_google, Y_dog, method = "spearman")
+cor.test(x=train_dog$size_akc, y=Y_dog, method = "spearman")
+cor.test(x=train_dog$activity_level, y=Y_dog, method = "spearman")
+
+chisq.test(tb_dog_group_fic)
+chisq.test(tb_dog_group_akc)
+
+?mantelhaen.test
+sizeakc = CMHtest(tb_dog_size_akc)
+sizeakc$table
+sizeg = CMHtest(tb_dog_size_google)
+sizeg$table
+sizeact = CMHtest(tb_dog_activity_level)
+sizeact$table
+
+
+?cor.test
+
+?CMHtest
+# 사이즈 끼리 / 그룹 끼리 상관관계 큼
+size = table(train_dog$size_google, train_dog$size_akc)
+group = table(train_dog$group_fic, train_dog$group_akc)
+assocstats(group)
+assocstats(size)
+group
+
+aaa = CMHtest(size)
+aaa$table
+
+size
+group
+train_dog = fread("train_dog.csv")
+cor.test(train_dog$size_google, train_dog$size_akc ,method = "spearman")
+assocstats(group)
+
+size_group = table(train_dog$size_akc, train_dog$group_akc)
+size_act = table(train_dog$size_akc, train_dog$activity_level)
+act_group = table(train_dog$activity_level, train_dog$group_akc)
+assocstats(size_group[-1,-1])
+assocstats(size_act[-1,-1])
+assocstats(act_group[-1,-1])
+
+
+#입양 여부와 상관이 더 높은 것
+assocstats(tb_dog_size_google)
+assocstats(tb_dog_size_akc)
+assocstats(tb_dog_group_fic)
+assocstats(tb_dog_group_akc)
+
+train_dog
+
+
+train_dog = train_dog %>% dplyr::select(-c(size_google, group_fic, size_akc, activity_level, season))
+
+
+
+```
+
+
+# 개 범주형 변수 검정
+```{r}
+
+train_dog = fread("train_dog.csv")
+
+#group_akc가 10, 9인 걸 8(others)로 넣자
+train_dog$group_akc = train_dog$group_akc %>% as.character() %>% 
+  revalue(c("9" = "8",
+          "10" = "8")) %>% as.numeric()
+
+# 범주형 변수만 뽑아내자
+# train_dog %>% colnames
+train_dog = train_dog %>% dplyr::select(adoptionYN,season, sex,neuterYN, color, size_google, group_fic, size_akc, group_akc, activity_level)
+
+
+# 개 카이제곱
+Y_dog = train_dog$adoptionYN
+tb_dog_group_fic = table(Y_dog, train_dog$group_fic)
+tb_dog_group_akc = table(Y_dog, train_dog$group_akc)
+tb_dog_season = table(Y_dog, train_dog$season)
+tb_dog_neuter = table(Y_dog, train_dog$neuterYN)
+tb_dog_sex = table(Y_dog, train_dog$sex)
+tb_dog_color = table(Y_dog, train_dog$color)
+
+tb_dog_size_akc = table(Y_dog, train_dog$size_akc) # 연속
+tb_dog_activity_level = table(Y_dog, train_dog$activity_level) # 연속
+tb_dog_size_google = table(Y_dog, train_dog$size_google) # 연속
+
+tb_size_size =  table(train_dog$size_akc, train_dog$size_google)
+tb_act_size =  table(train_dog$activity_level, train_dog$size_akc)
+
+
+# 사이즈를 설명하는 변수 2개, 그룹을 설명하는 변수 2개
+# 이거이거 무조건 상관관계 있다!
+# 사이즈끼리 비교해보고, 그룹끼리 비교해보자!
+# 진짜 있다!
+# 뭘 선택하지?
+# Cramers'V가 AKC가 높고 둘 다 같은 출처를 가지고 있으니 더 신뢰가 있다고 판단!
+# size_akc 와 group_akc 를 살리자!
+# 두 변수 간의 상관도 꽤나 크다,,, 유의해,,,
+# 뭘 살리지? 적당히 가설검정을 통해 비교할만한 척도가 없어서 cramer's V가 더 높은 group_akc 최종 땅땅땅!
+
+# 개 범주 순서 무시하고 상관관계 확인
+GKtauDataframe(train_dog %>% select(-c(adoptionYN))) %>% plot
+
+
+#개 범주 명목 상관관계 확인
+GKtauDataframe(train_dog %>% select(-c(adoptionYN, size_google, size_akc, activity_level))) %>% plot
+
+# 여기서 group 두 개끼리 관계가 매우 강함
+size = table(train_dog$size_google, train_dog$size_akc)
+group = table(train_dog$group_fic, train_dog$group_akc)
+assocstats(group)
+
+
+
+cor.test()
+
+#개 범주 순서 상관관계 확인
+GKgamma(tb_size_size)
+# 순서에서도 매우 강함
+train_dog_num = fread("train_dog.csv")
+cor(train_dog_num %>% dplyr::select(c(size_google, size_akc, activity_level)), method = "spearman")
+
+# 그래서 둘 중 cramer's V가 더 높은 것 선택
+# 그래서 둘 중 cramer's V가 더 높은 것 선택
+assocstats(tb_dog_group_akc)
+assocstats(tb_dog_group_fic)
+
+assocstats(tb_dog_size_google)
+assocstats(tb_dog_size_akc)
+
+# 명목형 척도인 group_akc와 순서형 척도인 size_akc와 비교할 수 있는 통계적 방법 못찾음
+size_group = table(train_dog$size_akc, train_dog$group_akc)
+act_group = table(train_dog$activity_level, train_dog$group_akc)
+size_act = table(train_dog$size_akc, train_dog$activity_level)
+assocstats(size_group)
+assocstats(act_group)
+assocstats(size_act)
+
+assocstats(tb_dog_activity_level)
+assocstats(tb_dog_group_akc)
+assocstats(tb_dog_size_akc)
+
+
+
+```
+
+
+# 개 로지스틱, 오즈비
+```{r}
+
+train = fread("final_train_dog.csv")
+
+# 숫자로 보면 불편해서 이름 바꿔주기
+train$group_akc = train$group_akc %>% as.character() %>% 
+  revalue(c("0" = "mixed",
+            "1"="sporting",
+            "2"="hound",
+            "3"="working",
+            "4"="terrier",
+            "5"="toy",
+            "6"="non-sporting",
+            "7"="herding",
+            "8"="others"
+            ))
+# 숫자로 보면 불편해서 이름 바꿔주기
+train$color = train$color %>% as.character() %>% 
+  revalue(c("0" = "etc",
+            "1"= "black",
+            "2"= "blackbrown",
+            "3"= "blackbrownwhite",
+            "4"= "blackwhite",
+            "5"= "brown",        
+            "6"="brownwhite",
+            "7"= "white"
+            ))
+# 숫자로 보면 불편해서 이름 바꿔주기
+train$neuterYN = train$neuterYN %>% as.character() %>% 
+  revalue(c("0" = "N",
+            "1" = "Y",
+            "2" = "U"))
+# 숫자로 보면 불편해서 이름 바꿔주기
+train$sex= train$sex %>% as.character() %>% 
+  revalue(c("0" = "M",
+            "1" = "F",
+            "2" = "U"))
+
+# factor 처리
+train %<>% 
+  mutate(adoptionYN = as.factor(adoptionYN)) %>% 
+  mutate_if(is.character, as.factor)
+
+# 범주형 변수 저장
+category = c("sex", "group_akc", "neuterYN", "color")
+
+# Y 값 따로 저장
+adoptionYN = train$adoptionYN
+
+# 원핫인코딩
+train_dummy = dummy_cols(train[,-"adoptionYN"], select_columns = category, remove_first_dummy = T)
+
+train_full = cbind(adoptionYN, train_dummy)
+train_full = train_full %>% select(-category)
+
+# 스케일링
+train_scaled = train_full %>% 
+  mutate(weight_kg = scale(weight_kg),
+         positives = scale(positives),
+         negatives = scale(negatives),
+         grdp = scale(grdp),
+         economy = scale(economy),
+         hospital_num = scale(hospital_num))
+
+train_origin_scaled = train %>% 
+  mutate(weight_kg = scale(weight_kg),
+         positives = scale(positives),
+         negatives = scale(negatives),
+         grdp = scale(grdp),
+         economy = scale(economy),
+         hospital_num = scale(hospital_num))
+
+# 더미한 거
+logis_model1 = glm(adoptionYN~., data = train_origin_scaled, family = binomial)
+summary(logis_model1)
+
+# 더미 안하고 팩터 처리한 거
+logis_model2 = glm(adoptionYN~., data = train_scaled, family = binomial)
+summary(logis_model2)
+
+## 두 개 결과 같음 !!
+```
+
+```{r}
+# 오즈비 출력 함수 정의
+ORtable = function(x, digits = 7){
+    suppressMessages(a <- confint(x))
+    result = data.frame(exp(coef(x)), exp(a))
+    result = round(result, digits)
+    result = cbind(result, round(summary(x)$coefficient[,4],5))
+    colnames(result) = c("OR", "2.5%", "97.%", "p-value")
+    result
+}
+
+ORtable = ORtable(logis_model2)
+writexl::write_xlsx(ORtable, "Odds ratio table.xlsx", col_names = T)
+ORtable
+
+
+# 신뢰구간이랑 오즈비
+exp(cbind(Odds_ratio = coef(logis_model1), confint(logis_model1)))
+```
+
+
+
+
+# 개 오즈비 검정
+```{r}
+
+train_dog
+
+Y_dog = train_dog$adoptionYN
+
+tb_dog_group_akc = t(table(Y_dog, train_dog$group_akc))
+tb_dog_neuter = t(table(Y_dog, train_dog$neuterYN))
+tb_dog_sex = t(table(Y_dog, train_dog$sex))
+tb_dog_color = t(table(Y_dog, train_dog$color))
+
+
+oddsratio.wald(tb_dog_group_akc)
+oddsratio.wald(tb_dog_neuter)
+oddsratio.wald(tb_dog_sex)
+oddsratio.wald(tb_dog_color)
+
+
+train_dog = fread("train_dog.csv")
+
+train_dog$group_akc = train_dog$group_akc %>% as.character() %>% 
+  revalue(c("9" = "8",
+          "10" = "8")) %>% as.numeric()
+
+train_dog$group_akc = train_dog$group_akc %>% as.character() %>% 
+    plyr::revalue(c("0" = "mixed",
+            "1"="sporting",
+            "2"="hound",
+            "3"="working",
+            "4"="terrier",
+            "5"="toy",
+            "6"="non-sporting",
+            "7"="herding",
+            "8"="others"
+            ))
+
+train_dog$group_fic %<>% as.character %>% 
+    plyr::revalue(c("0" = "mixed",
+            "1" = "Sheepdogs and Cattledogs" ,
+            "2" = "Pinscher and Schnauzer",
+            "3" = "Terrirs",
+            "4" = "Dachshunds" ,
+            "5" = "Spitz",
+            "6" = "Scenthounds",
+            "7" = "WaterDogs",
+            "8" = "Pointing",
+            "9" =  "Toy",
+            "10" ="Sighthounds",
+            "11" = "Unknown"
+            ))
+
+train_dog$size_google %<>% as.character() %>% 
+    plyr::revalue(c("0" = "U",
+            "1" = "S",
+            "2" = "M",
+            "3" = "L"))
+
+train_dog$size_akc %<>% as.character() %>% 
+    plyr::revalue(c("0" = "U",
+            "1" = "XS",
+            "2" = "S",
+            "3" = "M",
+            "4" = "L",
+            "5" = "XL"))
+
+train_dog$color = train_dog$color %>% as.character() %>% 
+  plyr::revalue(c("0" = "etc",
+            "1"= "black",
+            "2"= "blackbrown",
+            "3"= "blackbrownwhite",
+            "4"= "blackwhite",
+            "5"= "brown",        
+            "6"="brownwhite",
+            "7"= "white"
+            ))
+
+
+train_dog %>% filter(group_akc == "herding") %>% group_by(adoptionYN, kind_spec) %>% dplyr::summarise(n())
+
+
+```
+
+
+```{r}
+# 굉이 카이제곱
+Y_cat = train_cat$adoptionYN
+
+tb_cat_neuterYN = table(Y_cat, train_cat$neuterYN)
+tb_cat_sex = table(Y_cat, train_cat$sex)
+tb_cat_season = table(Y_cat, train_cat$season)
+tb_cat_hair = table(Y_cat, train_cat$hair)
+tb_cat_color = table(Y_cat, train_cat$color)
+
+
+
+
+
+
+GKtauDataframe(train_cat[,-"adoptionYN"]) %>% plot 
+
+
+```
+
+
+범주형 변수 검정 방법
+- 피셔의 정확도 검정 : 2x2 / only for small expected values in table (XXXXXXXXXXXXXXXXX)
+- 페어 -> 맥네마르 (XXXXXXXXXXXXXXXXXXXXXXXX)
+- RC table -> 카이제곱 검정
+
+
+너무 다 유의하다고 나오는데 좀 더 strict 한 검정 방법은 없을까? > 본페르니 method 사용
+본페르니 써도 = alpha를 작게해서 아무리 귀무가설을 살리고 싶어도
+가능도비 검정이랑, 카이제곱 검정 둘 다 기각시킴!!!! 계절 빼고 다 쓰자~
+
+
+개 범주에서 사이즈가 두 개, 그룹이 두 개라서 상관관계를 봤더니 둘 다 엄청 강해서
+둘 중 하나는 버림, 입양 여부와 상관이 더 크면서 같은 출처를 가진 AKC 기준을 사용하기로 결정

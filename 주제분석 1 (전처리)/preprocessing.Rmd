@@ -1,0 +1,114 @@
+---
+title: "Untitled"
+author: "Ko"
+date: '2021 4 23 '
+output: html_document
+---
+
+
+최종 데이터 만들어보쟈
+```{r setup}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+library(tidyverse)
+library(data.table)
+library(magrittr)
+library(lubridate)
+
+data_2020 = fread("2020.csv") 
+
+
+data = data_2020[1:100] %>% 
+  mutate(careAddr_dosi = df$careAddr_dosi[1:100],
+         orgNm_dosi = df1$orgNm_dosi[1:100],
+         age = parse_number(age),
+         weight_kg = parse_number(weight), .keep ="unused") %>% 
+  arrange(age)
+
+
+####################################################################
+# 나이랑 몸무게 수치형으로 변환
+data_2020 = data_2020 %>% 
+  mutate(age = parse_number(age),
+         weight_kg = parse_number(weight), .keep ="unused")
+
+#나이
+data_2020[age > 10000, "age"] = data_2020[age > 10000, age %/% 10000]
+data_2020[age < 1000, "age"] = data_2020[age < 1000, 2020-age]
+
+
+######################################################################
+# 여기 밑에꺼에 특징변수(-> 질병, 성격변수) + 보호소 변수 추가해야함 #
+######################################################################
+
+#전처리
+data_my = 
+data_2020 %>% 
+  
+  #날짜형변환
+  mutate(noticeSdt = as_date(noticeSdt %>% as.character),
+         noticeEdt = as_date(noticeEdt %>% as.character)) %>% 
+  
+  #2020년 데이터만
+  filter(noticeSdt <= ymd("20201231")) %>% 
+  
+  #기간, 계절 변수 추가
+  mutate(duration = noticeEdt - noticeSdt,
+         season = ifelse(noticeEdt >= ymd("20201201"), "Winter",
+                         ifelse(noticeEdt >= ymd("20200901"), "Fall",
+                                ifelse(noticeEdt >= ymd("20200601"), "Summer", 
+                                       ifelse(noticeEdt >= ymd("20200301"), "Spring", "Winter"))))) %>% 
+  
+  # 기간이 음수인 거 빼기
+  filter(duration >= 0) %>% 
+  
+  # 날짜 오름차순으로 정렬
+  arrange(noticeSdt) %>% 
+  
+  # 종/세부품종 분류
+  separate(kindCd, c("kind", "kind_spec"), sep = " ") %>% drop_na %>% 
+  
+         #중성화여부
+  mutate(neuterYN = ifelse(neuterYn == "Y", "Y", 
+                           ifelse(neuterYn == "N", "N", "U")), 
+         
+         #나이 다시 계산
+         age = 2021 - age,
+         
+         #성별
+         sex = as.factor(sexCd), 
+         
+         #상태 종료(입양) -> 입양만 남기기
+         state = str_replace(processState, ".+\\((.+)\\)", "\\1"), #상태
+         
+         #"[개] -> 개" 로 바꾸기
+         kind = str_extract(kind, "\\w+"), 
+         
+         # 입양 여부 파생 변수 생성
+         adoptionYN = ifelse(state == "입양", 1, 0), 
+         .keep = "unused") %>% 
+  
+  # 방사랑 반환 제외
+  filter( state != "방사" & state != "반환" )
+  
+
+
+#나누기
+data_dog = data_my %>% filter(kind == "개")
+data_cat = data_my %>% filter(kind == "고양이")
+
+
+#무게
+data_cat[weight_kg >= 100 & weight_kg <= 800, "weight_kg"] = data_cat[weight_kg >= 100 & weight_kg <= 800, weight_kg/1000]
+data_cat[weight_kg >= 20 & weight_kg < 60, "weight_kg"] = data_cat[weight_kg >= 20 & weight_kg < 60, weight_kg/10]
+data_cat  = data_cat %>% filter(weight_kg <= 100) 
+data_dog[weight_kg >= 100 & weight_kg <= 1800, "weight_kg"] = data_dog[weight_kg >= 100 & weight_kg <= 1800, weight_kg/1000]
+data_dog = data_dog %>% filter(weight_kg <= 100)
+
+
+View(data_dog)
+
+
+```
+
+
+
