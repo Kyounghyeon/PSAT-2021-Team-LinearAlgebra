@@ -1,2 +1,11 @@
 # PSAT_2021_Team_LinearAlgebra
-This is all about my records in PSAT, SKKU
+This is all about my records in PSAT, SKKU🤗
+
+성균관대학교 통계분석학회 PSAT에서 선형대수학팀으로서 한 학기 동안 활동한 내용입니다.
+
+**클린업**
+- 선형대수학적 기초 지식과 이를 응용한 차원 축소 내용을 학습하였습니다.
+- 추가적으로 쌍대 비교와 잠재 요인 분석을 학습하였습니다.
+
+**주제분석**
+- 팀원들과 '유기동물 입양 예측 모델 구축과 활용방안'이라는 주제로 4주 간 주제분석을 진행하였습니다.
