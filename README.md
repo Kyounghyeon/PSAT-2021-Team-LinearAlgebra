@@ -10,7 +10,7 @@ This is all about my records in PSAT, SKKU🤗
 **주제분석**
 - 팀원들과 '유기동물 입양 예측 모델 구축과 활용방안'이라는 주제로 4주 간 주제분석을 진행하였습니다.
 - 자료 수집 : 공공데이터 포털 API, 크롤링, 국가통계포털
-- 분석 방법 
+- 분석 방법  
  - Plotting
  - t-검정과 회귀분석을 이용한 변수 검정
  - 범주형 변수의 인코딩(One-hot, catboost encoding)
